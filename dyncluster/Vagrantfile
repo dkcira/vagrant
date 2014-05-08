@@ -1,0 +1,79 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+NODE_COUNT=4
+
+###################################### master
+$master_script = <<SCRIPT
+#!/bin/bash -x
+nr_nodes=$1
+# add private key
+mkdir -p /root/.ssh
+cp -r /vagrant/.ssh/id_rsa /root/.ssh/id_rsa
+chmod 600 /root/.ssh/id_rsa
+# add public key
+touch /root/.ssh/authorized_keys
+chmod 600 /root/.ssh/authorized_keys
+cat /vagrant/.ssh/id_rsa.pub >>/root/.ssh/authorized_keys
+# /etc/hosts
+touch /etc/hosts
+touch /root/.ssh/known_hosts
+echo "10.211.55.100       master" >> /etc/hosts
+for i in $(seq 1 $nr_nodes); do
+ip_octet=$(expr 100 + $i)
+echo "10.211.55.${ip_octet}       node${i}" >> /etc/hosts
+done
+SCRIPT
+
+###################################### node
+$node_script = <<SCRIPT
+#!/bin/bash -x
+nr_nodes=$1
+# add public key
+mkdir -p /root/.ssh
+touch /root/.ssh/authorized_keys
+chmod 600 /root/.ssh/authorized_keys
+cat /vagrant/.ssh/id_rsa.pub >>/root/.ssh/authorized_keys
+# /etc/hosts, known_hosts
+touch /etc/hosts
+touch /root/.ssh/known_hosts
+echo "10.211.55.100       master" >> /etc/hosts
+for i in $(seq 1 $nr_nodes); do
+ip_octet=$(expr 100 + $i)
+echo "10.211.55.${ip_octet}       node${i}" >> /etc/hosts
+done
+
+SCRIPT
+
+###################################### vagrant
+# http://maci0.wordpress.com/2013/11/09/dynamic-multi-machine-vagrantfile/
+VAGRANTFILE_API_VERSION = "2"
+#INTNET_NAME = [*('A'..'Z')].sample(8).join
+Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
+# general config
+  config.vm.provider "virtualbox" do |v|
+    v.customize ["modifyvm", :id, "--memory", 256]
+    v.customize ["modifyvm", :id, "--cpus", 2]
+    #v.customize ["modifyvm", :id, "--nic2", "intnet", "--intnet2", "#{INTNET_NAME}"]
+  end
+# master
+  config.vm.define "master" do |node|
+    node.vm.provision :shell, :inline => $master_script, :args =>  "#{NODE_COUNT}"
+    node.vm.box_url = "https://github.com/2creatives/vagrant-centos/releases/download/v6.5.3/centos65-x86_64-20140116.box"
+    node.vm.box = "centos6.5"
+    node.vm.hostname = "master.intranet.local"
+    node.vm.network :private_network, ip: "10.211.55.100"
+  end
+# nodes
+  NODE_COUNT.times do |i|
+    node_id = "node#{i+1}"
+    config.vm.define node_id do |node|
+      node.vm.provision :shell, :inline => $master_script, :args =>  "#{NODE_COUNT}"
+      node.vm.box_url = "https://github.com/2creatives/vagrant-centos/releases/download/v6.5.3/centos65-x86_64-20140116.box"
+      node.vm.box = "centos6.5"
+      node.vm.hostname = "#{node_id}.intranet.local"
+      ip_octet = 101 + i
+      node.vm.network :private_network, ip: "10.211.55.#{ip_octet}"
+    end
+  end
+end
